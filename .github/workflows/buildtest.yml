@@ -18,6 +18,9 @@ jobs:
         name: cachix-test
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
         installCommand: nix profile install github:cachix/cachix -L --accept-flake-config
+    - name: Set up Homebrew
+      id: set-up-homebrew
+      uses: Homebrew/actions/setup-homebrew@master
     - name: Setup tmate session
       uses: mxschmitt/action-tmate@v3
       with:
