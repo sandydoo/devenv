@@ -5,6 +5,8 @@ mod log;
 use clap::{crate_version, Parser, Subcommand};
 use cli_table::{print_stderr, Table, WithTitle};
 use include_dir::{include_dir, Dir};
+use libproc::libproc::proc_pid::{listpidinfo, pidinfo, ListThreads};
+use libproc::libproc::task_info::{TaskAllInfo, TaskInfo};
 use miette::{bail, Result};
 use serde::Deserialize;
 use sha2::Digest;
@@ -12,6 +14,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::os::unix::fs::symlink;
 use std::str::FromStr;
+use std::thread::sleep;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     fs,
@@ -376,10 +379,12 @@ fn main() -> Result<()> {
         Commands::Info {} => app.info(),
         Commands::Build { attributes } => app.build(&attributes),
         Commands::Update { name } => app.update(&name),
-        Commands::Up { process, detach } => app.up(process.as_deref(), &detach, &detach),
+        Commands::Up { process, detach } => {
+            app.up(process.as_deref(), &detach, &detach).map(|_res| ())
+        }
         Commands::Processes { command } => match command {
             ProcessesCommand::Up { process, detach } => {
-                app.up(process.as_deref(), &detach, &detach)
+                app.up(process.as_deref(), &detach, &detach).map(|_res| ())
             }
             ProcessesCommand::Down {} => app.down(),
         },
@@ -841,8 +846,9 @@ impl App {
             bail!("No tests found");
         }
 
+        let mut process = None;
         if self.has_processes()? {
-            self.up(None, &true, &false)?;
+            process = self.up(None, &true, &false)?;
         }
 
         let result = {
@@ -863,10 +869,30 @@ impl App {
             cmd.output().expect("Failed to run tests")
         };
 
+        println!("{:?}", tmpdir);
+        if let Some(ref p) = process {
+            if let Ok(task) = pidinfo::<TaskAllInfo>(p.id() as i32, 0) {
+                println!(
+                    "id: {}, pid: {}, ppid: {}, gid: {}",
+                    p.id(),
+                    task.pbsd.pbi_pid,
+                    task.pbsd.pbi_ppid,
+                    task.pbsd.pbi_gid
+                );
+            }
+        }
+
+        // std::thread::sleep(std::time::Duration::from_secs(300));
+
         if self.has_processes()? {
             self.down()?;
         }
 
+        if let Some(mut p) = process {
+            let _ = p.wait();
+        }
+
+        sleep(std::time::Duration::from_secs(1));
         if !result.status.success() {
             self.logger.error("Tests failed :(");
             bail!("Tests failed");
@@ -931,7 +957,12 @@ impl App {
         Ok(())
     }
 
-    fn up(&mut self, process: Option<&str>, detach: &bool, log_to_file: &bool) -> Result<()> {
+    fn up(
+        &mut self,
+        process: Option<&str>,
+        detach: &bool,
+        log_to_file: &bool,
+    ) -> Result<Option<std::process::Child>> {
         self.assemble()?;
         if !self.has_processes()? {
             self.logger
@@ -1016,10 +1047,11 @@ impl App {
                     ));
                 }
                 self.logger.info("Stop:      $ devenv processes stop");
-            } else {
-                cmd.exec();
+                return Ok(Some(process));
             }
-            Ok(())
+
+            cmd.exec();
+            Ok(None)
         }
     }
 
@@ -1038,7 +1070,7 @@ impl App {
             .info(&format!("Stopping process with PID {}", pid));
 
         let pid = nix::unistd::Pid::from_raw(pid);
-        match nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM) {
+        match nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT) {
             Ok(_) => {}
             Err(_) => {
                 self.logger

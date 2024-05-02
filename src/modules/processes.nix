@@ -132,14 +132,18 @@ in
       ${config.processManagerCommand}
 
       backgroundPID=$!
+      echo "======================================="
+      echo "$backgroundPID"
 
       down() {
         echo "Stopping processes..."
-        kill -TERM $backgroundPID
+        kill -INT $backgroundPID
         wait $backgroundPID
         ${config.process.after}
         echo "Processes stopped."
-        rm -rf ${config.devenv.runtime}
+        echo ${config.devenv.runtime}
+        sleep 1s
+        # rm -rf ${config.devenv.runtime}
       }
 
       trap down SIGINT SIGTERM

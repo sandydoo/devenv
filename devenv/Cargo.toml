@@ -30,3 +30,4 @@ xdg = "2.5.2"
 
 devenv_core = { path = "../devenv_core" }
 schemars = "0.8.16"
+libproc = "0.14.8"
